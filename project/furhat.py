@@ -1,15 +1,44 @@
 import os
-import openai
 from openai import OpenAI
 from furhat_remote_api import FurhatRemoteAPI
 import time
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
 
 load_dotenv()
 
 # Initialize Furhat and OpenAI API
 furhat = FurhatRemoteAPI("localhost")
 #furhat = FurhatRemoteAPI("192.168.1.114")  # Replace with Furhat's IP or "localhost"
+
+def get_chatgpt_emotions(context):
+    try:
+        client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        response = client.chat.completions.create(
+            model="gpt-4",
+            temperature=0.7,
+            messages=[
+                {
+                    "role": "system", 
+                    "content": """You are playing a game with a human and you try to guess the right celebrity.
+                    While doing so, your task is to show an appropriate facial expression to the user. 
+                    You are provided with the Gamestate of the Game. 
+                    in which the variable gameState.lastFacialExpression is the emotional state of the human you are playing with.
+                    Your task is to return the emotional reponse you think would suit the situation best. 
+                    You can choose from the following emotions: ["happy", "sad", "depressed", "neutral"]
+                    """
+                },
+                {"role": "user", "content": context}
+            ]
+        )
+        content = response.choices[0].message.content
+        # Clean up the response - remove any extra spaces, newlines, or punctuation at the end
+        content = content.strip('?.!').strip()
+        print(f"Generated question: {content}")
+        return content
+    except Exception as e:
+        print(f"Error with ChatGPT API: {e}")
+        return "Sorry, I encountered an issue. Let's try again."
 
 def get_chatgpt_question(context):
     try:
@@ -49,13 +78,17 @@ def wait_for_valid_response():
     
     message = user_response.message.strip().lower()  # Access the 'message' attribute directly
     print(f"Parsed message: {message}")
+
+    gameState.lastGuess = message
     
     # Detect "yes" or "no" in the message using simple pattern matching
     if "yes" in message:
         print("Detected 'yes' response.")
+        gameState.totalNumberofCorrectGuesses+= 1
         return "yes"
     elif "no" in message:
         print("Detected 'no' response.")
+        gameState.totalNumberofWrongGuesses+= 1
         return "no"
     
     # If neither "yes" nor "no" is detected
@@ -63,19 +96,38 @@ def wait_for_valid_response():
     furhat.say(text="I didn't understand that. Please answer yes or no.")
     return None
 
+class GameState(object):
+    def __init__(self):
+        self.totalNumberofQuestionsAsked = 0
+        self.totalNumberofCorrectGuesses = 0        
+        self.totalNumberofWrongGuesses = 0        
+        self.lastGuess = None
+        self.lastFacialExpression = "sad"
+        self.lastEmotionalStateAccess = None
+        self.furHatEmotions = None
+        
+    def toString(self):
+        return str("totalNumberofQuestionsAsked: " + str(self.totalNumberofQuestionsAsked) + 
+                   "totalNumberofCorrectGuesses: " + str(self.totalNumberofCorrectGuesses) + 
+                   "totalNumberofWrongGuesses: " + str(self.totalNumberofWrongGuesses) + 
+                   "lastGuess: " + str(self.lastGuess) + 
+                   "lastFacialExpression: " + str(self.lastFacialExpression) + 
+                   "furHatEmotions: " + str(self.furHatEmotions))
+    
 
+gameState = GameState()
 
 def guessing_game():
     # Initial introduction
+    
     furhat.say(text = "Think of a celebrity and I will try to guess who it is")
     time.sleep(2)
     furhat.say(text ="Please answer my questions with yes or no")
     time.sleep(2)
     
     context = "I am trying to guess a celebrity. Previous answers: "
-    questions_asked = 0
     
-    while questions_asked < 20:  # Maximum 20 questions
+    while gameState.totalNumberofQuestionsAsked < 20:  # Maximum 20 questions
         question = get_chatgpt_question(context)
         if question:
             furhat.say(text=question)
@@ -86,16 +138,22 @@ def guessing_game():
         
         time.sleep(4)
         
+        if gameState.lastEmotionalStateAccess == None or datetime.now() >= gameState.lastEmotionalStateAccess + timedelta(seconds=10):
+            with open('./emotions.csv', 'r', newline='') as file:
+                gameState.lastFacialExpression = file.readline()
+            gameState.lastEmotionalStateAccess = datetime.now()
+            gameState.furHatEmotions = get_chatgpt_emotions(gameState.toString())
+
         # Get response
         answer = wait_for_valid_response()
         if answer:
-            questions_asked += 1
-            context += f"\nQ{questions_asked}: {question} - A: {answer}"
+            context += f"\nQ{gameState.totalNumberofQuestionsAsked}: {question} - A: {answer}"
             print(f"Updated context: {context}")
             
             # Try to guess after every 3 questions
-            if questions_asked % 5 == 0:
-                guess_prompt = f"{context}\nBased on these answers, make your best guess of who the celebrity is. Only provide the name."
+            if gameState.totalNumberofQuestionsAsked % 5 == 0:
+                guess_prompt = f"{context}\n Based on these answers and the current statistics, make your best guess of who the celebrity is. Only provide the name."
+                print(guess_prompt)
                 guess = get_chatgpt_question(guess_prompt)
                 if guess:
                     furhat.say(text=f"Could it be {guess}?")
@@ -103,7 +161,7 @@ def guessing_game():
                     guess_response = wait_for_valid_response()
                     if guess_response == 'yes':
                         furhat.say(text="Great! I guessed correctly!")
-                        return
+                        break
                     else:
                         furhat.say(text="Okay, let me continue asking questions.")
                         time.sleep(3)
@@ -111,6 +169,8 @@ def guessing_game():
             # If no valid response, skip to the next iteration
             furhat.say(text="Let's move to the next question.")
             continue
+        
+        gameState.totalNumberofQuestionsAsked += 1
 
     
     # If we reach here, we've asked too many questions
