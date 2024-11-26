@@ -4,12 +4,13 @@ from furhat_remote_api import FurhatRemoteAPI
 import time
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
+import re
 
 load_dotenv()
 
 # Initialize Furhat and OpenAI API
 furhat = FurhatRemoteAPI("localhost")
-#furhat = FurhatRemoteAPI("192.168.1.114")  # Replace with Furhat's IP or "localhost"
+urhat = FurhatRemoteAPI("192.168.1.114")  # Replace with Furhat's IP or "localhost"
 
 def get_chatgpt_emotions(context):
     try:
@@ -25,7 +26,8 @@ def get_chatgpt_emotions(context):
                     You are provided with the Gamestate of the Game. 
                     in which the variable gameState.lastFacialExpression is the emotional state of the human you are playing with.
                     Your task is to return the emotional reponse you think would suit the situation best. 
-                    You can choose from the following emotions: ["happy", "sad", "depressed", "neutral"]
+                    You can choose from the following emotions: ["BigSmile", "Blink", "BrowFrown", "BrowRaise"]
+                    <express(happiness)>
                     """
                 },
                 {"role": "user", "content": context}
@@ -53,8 +55,12 @@ def get_chatgpt_question(context):
                     Ask strategic yes/no questions to narrow down the possibilities.
                     Based on previous answers, don't repeat similar questions.
                     After gathering enough information, make a guess.
-                    Provide only the question without any additional text or punctuation.
-                    Keep track of all previous answers to make informed guesses.. Provide only the question without any additional text or punctuation."""
+                    Keep track of all previous answers to make informed guesses..
+                    express(emotion): Given a string emotion name, change your facial expression to match that emotion. The
+                    list of available emotions is [BigSmile, Blink, BrowFrown, BrowRaise, CloseEyes, ExpressAnger, ExpressDisgust, ExpressSad, GazeAway, Nod, Oh, OpenEyes, Roll, Shake, Surprise, Thoughtful, Wink]. 
+                    Every response should start by calling an action function to express an appropriate available expression, like
+                    the following example. <express(BigSmile)>.
+                    """
                 },
                 {"role": "user", "content": context}
             ]
@@ -102,24 +108,22 @@ class GameState(object):
         self.totalNumberofCorrectGuesses = 0        
         self.totalNumberofWrongGuesses = 0        
         self.lastGuess = None
-        self.lastFacialExpression = "sad"
+        self.lastRobotFacialExpression = "sad"
+        self.lastHumanFacialExpression = "sad"
         self.lastEmotionalStateAccess = None
-        self.furHatEmotions = None
         
-    def toString(self):
+    def toString(self): 
         return str("totalNumberofQuestionsAsked: " + str(self.totalNumberofQuestionsAsked) + 
                    "totalNumberofCorrectGuesses: " + str(self.totalNumberofCorrectGuesses) + 
                    "totalNumberofWrongGuesses: " + str(self.totalNumberofWrongGuesses) + 
                    "lastGuess: " + str(self.lastGuess) + 
-                   "lastFacialExpression: " + str(self.lastFacialExpression) + 
-                   "furHatEmotions: " + str(self.furHatEmotions))
+                   "lastFacialExpression: " + str(self.lastRobotFacialExpression) + 
+                   "furHatEmotions: " + str(self.lastHumanFacialExpression))
     
 
 gameState = GameState()
 
 def guessing_game():
-    # Initial introduction
-    
     furhat.say(text = "Think of a celebrity and I will try to guess who it is")
     time.sleep(2)
     furhat.say(text ="Please answer my questions with yes or no")
@@ -138,16 +142,24 @@ def guessing_game():
         
         time.sleep(4)
         
-        if gameState.lastEmotionalStateAccess == None or datetime.now() >= gameState.lastEmotionalStateAccess + timedelta(seconds=10):
-            with open('./emotions.csv', 'r', newline='') as file:
-                gameState.lastFacialExpression = file.readline()
-            gameState.lastEmotionalStateAccess = datetime.now()
-            gameState.furHatEmotions = get_chatgpt_emotions(gameState.toString())
+        pattern = r"<express\([^)]*\)>"
+        matches = re.findall(pattern, question)
+        
+        if matches:
+            idx1 =  matches[0].index("(")
+            idx2 =  matches[0].index(")")
+            gameState.lastRobotFacialExpression =  matches[0][idx1 + len("("): idx2]
+            furhat.gesture(name=gameState.lastRobotFacialExpression)
+
+        with open ("emotions.csv", "r" ) as humanEmotions:
+            gameState.lastHumanFacialExpression = humanEmotions.read()
 
         # Get response
         answer = wait_for_valid_response()
         if answer:
             context += f"\nQ{gameState.totalNumberofQuestionsAsked}: {question} - A: {answer}"
+            context += "Here is the current state of the game and some other statistics which might be useful" + gameState.toString() 
+            
             print(f"Updated context: {context}")
             
             # Try to guess after every 3 questions
