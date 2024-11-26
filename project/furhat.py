@@ -9,8 +9,8 @@ import re
 load_dotenv()
 
 # Initialize Furhat and OpenAI API
-furhat = FurhatRemoteAPI("localhost")
-urhat = FurhatRemoteAPI("192.168.1.114")  # Replace with Furhat's IP or "localhost"
+#furhat = FurhatRemoteAPI("localhost")
+furhat = FurhatRemoteAPI("192.168.1.114")  # Replace with Furhat's IP or "localhost"
 
 def get_chatgpt_emotions(context):
     try:
@@ -56,6 +56,7 @@ def get_chatgpt_question(context):
                     Based on previous answers, don't repeat similar questions.
                     After gathering enough information, make a guess.
                     Keep track of all previous answers to make informed guesses..
+                    Provide only the question without any additional text or punctuation.
                     express(emotion): Given a string emotion name, change your facial expression to match that emotion. The
                     list of available emotions is [BigSmile, Blink, BrowFrown, BrowRaise, CloseEyes, ExpressAnger, ExpressDisgust, ExpressSad, GazeAway, Nod, Oh, OpenEyes, Roll, Shake, Surprise, Thoughtful, Wink]. 
                     Every response should start by calling an action function to express an appropriate available expression, like
@@ -100,6 +101,7 @@ def wait_for_valid_response():
     # If neither "yes" nor "no" is detected
     print("No valid 'yes' or 'no' detected in the response.")
     furhat.say(text="I didn't understand that. Please answer yes or no.")
+    time.sleep(3)
     return None
 
 class GameState(object):
@@ -107,7 +109,7 @@ class GameState(object):
         self.totalNumberofQuestionsAsked = 0
         self.totalNumberofCorrectGuesses = 0        
         self.totalNumberofWrongGuesses = 0        
-        self.lastGuess = None
+        self.previousAnswers = ""
         self.lastRobotFacialExpression = "sad"
         self.lastHumanFacialExpression = "sad"
         self.lastEmotionalStateAccess = None
@@ -116,7 +118,7 @@ class GameState(object):
         return str("totalNumberofQuestionsAsked: " + str(self.totalNumberofQuestionsAsked) + 
                    "totalNumberofCorrectGuesses: " + str(self.totalNumberofCorrectGuesses) + 
                    "totalNumberofWrongGuesses: " + str(self.totalNumberofWrongGuesses) + 
-                   "lastGuess: " + str(self.lastGuess) + 
+                   "previousAnswers: " + str(self.previousAnswers) + 
                    "lastFacialExpression: " + str(self.lastRobotFacialExpression) + 
                    "furHatEmotions: " + str(self.lastHumanFacialExpression))
     
@@ -132,19 +134,23 @@ def guessing_game():
     context = "I am trying to guess a celebrity. Previous answers: "
     
     while gameState.totalNumberofQuestionsAsked < 20:  # Maximum 20 questions
+        gameState.totalNumberofQuestionsAsked += 1
         question = get_chatgpt_question(context)
+        pattern = r"<express\([^)]*\)>"
+        matches = re.findall(pattern, question)
+        
         if question:
+            if matches:
+                question = question.replace(matches[0], "")    
+            
             furhat.say(text=question)
             print(f"Asked: {question}")
         else:
             furhat.say(text="I couldn't think of a question. Let me try again.")
             continue
         
-        time.sleep(4)
-        
-        pattern = r"<express\([^)]*\)>"
-        matches = re.findall(pattern, question)
-        
+        time.sleep(3)
+                
         if matches:
             idx1 =  matches[0].index("(")
             idx2 =  matches[0].index(")")
@@ -157,19 +163,27 @@ def guessing_game():
         # Get response
         answer = wait_for_valid_response()
         if answer:
-            context += f"\nQ{gameState.totalNumberofQuestionsAsked}: {question} - A: {answer}"
+            gameState.previousAnswers += f"\nQ{gameState.totalNumberofQuestionsAsked}: {question} - A: {answer}"
+            context += gameState.previousAnswers
             context += "Here is the current state of the game and some other statistics which might be useful" + gameState.toString() 
             
             print(f"Updated context: {context}")
             
             # Try to guess after every 3 questions
             if gameState.totalNumberofQuestionsAsked % 5 == 0:
-                guess_prompt = f"{context}\n Based on these answers and the current statistics, make your best guess of who the celebrity is. Only provide the name."
-                print(guess_prompt)
+                guess_prompt = f"{gameState.previousAnswers}\n Based on these answers and the current statistics, make your best guess of who the celebrity is. Only provide the name."
+                print("guessprompt: "  + guess_prompt)
                 guess = get_chatgpt_question(guess_prompt)
+                
+                pattern = r"<express\([^)]*\)>"
+                matches = re.findall(pattern, guess)
+                
                 if guess:
+                    if matches:
+                        guess = guess.replace(matches[0], "")    
+                        
                     furhat.say(text=f"Could it be {guess}?")
-                    time.sleep(4)
+                    time.sleep(3)
                     guess_response = wait_for_valid_response()
                     if guess_response == 'yes':
                         furhat.say(text="Great! I guessed correctly!")
@@ -180,10 +194,8 @@ def guessing_game():
         else:
             # If no valid response, skip to the next iteration
             furhat.say(text="Let's move to the next question.")
+            time.sleep(3)
             continue
-        
-        gameState.totalNumberofQuestionsAsked += 1
-
     
     # If we reach here, we've asked too many questions
     furhat.say(text = "I give up. Thank you for playing")
