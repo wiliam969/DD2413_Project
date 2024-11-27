@@ -16,6 +16,7 @@ client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 assistant = client.beta.assistants.retrieve("asst_pGFByUcST71ndbhfFWg07OdB")
 furhat = FurhatRemoteAPI("localhost")
 thread = client.beta.threads.create()
+
 ##############################################################################
 # Classes
 ##############################################################################
@@ -56,8 +57,9 @@ class furHatSays(py_trees.behaviour.Behaviour):
 
     def update(self):
         self.gameState.totalNumberOfInteraction += 1
-        
+
         furhat.say(text=self.message)
+
         time.sleep(3)
         
         print("[furHat said]: " + self.message)
@@ -213,6 +215,17 @@ class updateAnswerHistory(py_trees.behaviour.Behaviour):
         wGameState.gameState.answerHistory.append(latestResponse)
         
         return py_trees.common.Status.SUCCESS
+    
+class updateQuestionsAsked(py_trees.behaviour.Behaviour):
+
+    def __init__(self, name):
+        super().__init__(name=name)
+
+    def update(self):        
+        
+        wGameState.gameState.totalNumberofQuestionsAsked += 1
+        
+        return py_trees.common.Status.SUCCESS
 
 def guessCelebrity() -> py_trees.behaviour.Behaviour:
         
@@ -252,15 +265,16 @@ def guessCelebrity() -> py_trees.behaviour.Behaviour:
 
 def startGuessingRound() -> py_trees.behaviour.Behaviour:
        
-    guessingIteration = py_trees.composites.Sequence(name="Guessing Iteration: {i}", memory=True)
+    guessingIteration = py_trees.composites.Sequence(name="Guessing Iteration", memory=True)
     
     reqLLM = askLLMwithGameState(name="idk man", messageToLLM="I am trying to guess a celebrity. The following is a history of previous questions and answers/responses from the player. Based on the size of the array you know how many questions and answers were being asked already;")
     execLLM = chatGPTToFurhat(name="chatGPTToFurhat")
     listenPlayer = furHatListens(name="furHatListens")
     
-    wGameState.gameState.totalNumberofQuestionsAsked += 1
+    updateQuestionCounter = updateQuestionsAsked(name="QuestionCounter")
     
     guessingIteration.add_child(reqLLM)
+    guessingIteration.add_child(updateQuestionCounter)
     
     repeat_on_failure = py_trees.decorators.Retry("repeat listening process on failure", listenPlayer, 5)
     
@@ -299,9 +313,9 @@ def create_root() -> py_trees.behaviour.Behaviour:
     root = py_trees.composites.Sequence(name="Complete Tree", memory=True)
     
     welcomeRoutine = py_trees.composites.Sequence(name="Warming Up", memory=True)
-    
-    action1 = furHatSays(name="furHatSays", message="Think of a celebrity and I will try to guess who it is")
-    action2 = furHatSays(name="furHatSays", message="Please answer my questions with yes or no")
+        
+    action1 = furHatSays(name="furHatSays", message=f"Think <break time=\"7500ms\" /> of a celebrity and I will try to guess who it is")
+    action2 = furHatSays(name="furHatSays", message="Please answer my <break time=\"7500ms\" /> questions with yes or no")
     
     welcomeRoutine.add_child(action1)
     welcomeRoutine.add_child(action2)
