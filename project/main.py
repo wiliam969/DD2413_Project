@@ -90,6 +90,9 @@ class furHatListens(py_trees.behaviour.Behaviour):
         
         furHatResponse = furhat.listen()
         print ("Listenning...")
+        
+        if furHatResponse.message == "":
+            return py_trees.common.Status.FAILURE 
          
         self.furHatMediator.latestResponse = furHatResponse.message.strip().lower()
         print("[furHat heard]: " + furHatResponse.message)
@@ -161,12 +164,20 @@ def create_root() -> py_trees.behaviour.Behaviour:
         
         reqLLM = askChatGPT(name="idk man", messageToLLM="I am trying to guess a celebrity. Previous answers:")
         execLLM = chatGPTToFurhat(name="chatGPTToFurhat")
-        
         listenPlayer = furHatListens(name="furHatListens")
         
         guessingIteration.add_child(reqLLM)
-        guessingIteration.add_child(execLLM)
-        guessingIteration.add_child(listenPlayer)
+        
+        repeat_on_failure = py_trees.decorators.Repeat("repeat listening process on failure", listenPlayer, 1)
+        
+        para_listen_speech = py_trees.composites.Parallel(
+        name="Parallising of listening and speeching",
+        policy=py_trees.common.ParallelPolicy.SuccessOnAll(),
+        )
+        
+        para_listen_speech.add_child(execLLM)
+        para_listen_speech.add_child(repeat_on_failure)        
+        guessingIteration.add_child(para_listen_speech)
         
         isAnswerCorrect = py_trees.behaviours.CheckBlackboardVariableValue(
         name="Check for YES/NO",
@@ -181,6 +192,7 @@ def create_root() -> py_trees.behaviour.Behaviour:
         
         tryAskingForCelebIteration = py_trees.composites.Sequence(name="Guessing Iteration: {i}", memory=True)
         reqLLM2 = askChatGPT(name="idk man", messageToLLM="Based on these answers and the current statistics, make your best guess of who the celebrity is. Only provide the name.")
+        
         execLLM2 = chatGPTToFurhat(name="chatGPTToFurhat")
         listenPlayer2 = furHatListens(name="furHatListens")
         
