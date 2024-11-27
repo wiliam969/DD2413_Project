@@ -28,6 +28,9 @@ class GameState(object):
         self.lastHumanFacialExpression = "sad"
         self.lastEmotionalStateAccess = None
         self.totalNumberOfInteraction = 0
+        self.questionHistory = []
+        self.answerHistory = []
+        
         
     def toString(self): 
         return str("totalNumberofQuestionsAsked: " + str(self.totalNumberofQuestionsAsked) + 
@@ -110,6 +113,9 @@ class askChatGPT(py_trees.behaviour.Behaviour):
         self.blackboard.register_key("message", access=py_trees.common.Access.WRITE)
 
     def update(self):        
+        
+        concatenatedMessage = f"{self.messageToLLM} The following represents all questions you asked before: {self.gameState.questionHistory}. The following represents all answers the human has given prior: {self.gameState.answerHistory}"
+        
         response = client.chat.completions.create(
             model="gpt-4",
             temperature=0.7,
@@ -128,17 +134,33 @@ class askChatGPT(py_trees.behaviour.Behaviour):
                     the following example. <express(BigSmile)>.
                     """
                 },
-                {"role": "user", "content": self.messageToLLM}
+                {"role": "user", "content": concatenatedMessage}
             ]
         )
         content = response.choices[0].message.content
         # Clean up the response - remove any extra spaces, newlines, or punctuation at the end
         content = content.strip('?.!').strip()
         
+        wGameState.gameState.questionHistory.append(content)
+        
         self.blackboard.message = content
         print(f"[Chat-GPT said]: {content}")
         
         return py_trees.common.Status.SUCCESS
+
+class updateAnswerHistory(py_trees.behaviour.Behaviour):
+
+    def __init__(self, name):
+        super().__init__(name=name)
+
+    def update(self):        
+        
+        latestResponse = rfurHatMediator.furHatMediator.latestResponse
+
+        wGameState.gameState.answerHistory.append(latestResponse)
+        
+        return py_trees.common.Status.SUCCESS
+
         
 def create_root() -> py_trees.behaviour.Behaviour:
     """
@@ -147,76 +169,83 @@ def create_root() -> py_trees.behaviour.Behaviour:
     Returns:
         the root behaviour
     """
-    root = py_trees.composites.Sequence(name="Warming Up", memory=True)
+    root = py_trees.composites.Sequence(name="Complete Tree", memory=True)
+    
+    welcomeRoutine = py_trees.composites.Sequence(name="Warming Up", memory=True)
     
     action1 = furHatSays(name="furHatSays", message="Think of a celebrity and I will try to guess who it is")
     action2 = furHatSays(name="furHatSays", message="Please answer my questions with yes or no")
     
+    welcomeRoutine.add_child(action1)
+    welcomeRoutine.add_child(action2)
+    welcome = py_trees.idioms.oneshot(welcomeRoutine, "oneShot Welcome")
+    
     root.add_children(
         [
-            action1,
-            action2
+            welcome
         ]
     )
     
-    for i in range(1, 8):
-        guessingIteration = py_trees.composites.Sequence(name="Guessing Iteration: {i}", memory=True)
+    # for i in range(1, 8):
+    guessingIteration = py_trees.composites.Sequence(name="Guessing Iteration: {i}", memory=True)
+    
+    reqLLM = askChatGPT(name="idk man", messageToLLM="I am trying to guess a celebrity. The following is an history of previous questions and answers/responses from the player. Based on the size of the array you know how many questions and answers were being asked already;")
+    execLLM = chatGPTToFurhat(name="chatGPTToFurhat")
+    listenPlayer = furHatListens(name="furHatListens")
+    
+    guessingIteration.add_child(reqLLM)
+    
+    repeat_on_failure = py_trees.decorators.Retry("repeat listening process on failure", listenPlayer, 5)
+    
+    para_listen_speech = py_trees.composites.Parallel(
+    name="Parallising of listening and speeching",
+    policy=py_trees.common.ParallelPolicy.SuccessOnAll(),
+    )
+    
+    para_listen_speech.add_child(execLLM)
+    para_listen_speech.add_child(repeat_on_failure)        
+    guessingIteration.add_child(para_listen_speech)
+    
+    isAnswerCorrect = py_trees.behaviours.CheckBlackboardVariableValue(
+    name="Check for YES/NO",
+    check=py_trees.common.ComparisonExpression(
+        variable="furHatMediator.latestResponse", value="yes", operator=operator.contains
+    ),
+    )
+    
+    reqLLM = updateAnswerHistory(name="updateAnswerHistory")
+    guessingIteration.add_child(isAnswerCorrect)
+    guessingIteration.add_child(reqLLM)        
         
-        reqLLM = askChatGPT(name="idk man", messageToLLM="I am trying to guess a celebrity. Previous answers:")
-        execLLM = chatGPTToFurhat(name="chatGPTToFurhat")
-        listenPlayer = furHatListens(name="furHatListens")
+        # action4 = furHatSays(name="furHatSays", message="we are back boys")
         
-        guessingIteration.add_child(reqLLM)
+        # tryAskingForCelebIteration = py_trees.composites.Sequence(name="Guessing Iteration: {i}", memory=True)
+        # reqLLM2 = askChatGPT(name="idk man", messageToLLM="Based on these answers and the current statistics, make your best guess of who the celebrity is. Only provide the name.")
         
-        repeat_on_failure = py_trees.decorators.Repeat("repeat listening process on failure", listenPlayer, 1)
+        # execLLM2 = chatGPTToFurhat(name="chatGPTToFurhat")
+        # listenPlayer2 = furHatListens(name="furHatListens")
         
-        para_listen_speech = py_trees.composites.Parallel(
-        name="Parallising of listening and speeching",
-        policy=py_trees.common.ParallelPolicy.SuccessOnAll(),
-        )
-        
-        para_listen_speech.add_child(execLLM)
-        para_listen_speech.add_child(repeat_on_failure)        
-        guessingIteration.add_child(para_listen_speech)
-        
-        isAnswerCorrect = py_trees.behaviours.CheckBlackboardVariableValue(
-        name="Check for YES/NO",
-        check=py_trees.common.ComparisonExpression(
-            variable="furHatMediator.latestResponse", value="yes", operator=operator.contains
-        ),
-        )
-        
-        guessingIteration.add_child(isAnswerCorrect)
-        
-        action4 = furHatSays(name="furHatSays", message="we are back boys")
-        
-        tryAskingForCelebIteration = py_trees.composites.Sequence(name="Guessing Iteration: {i}", memory=True)
-        reqLLM2 = askChatGPT(name="idk man", messageToLLM="Based on these answers and the current statistics, make your best guess of who the celebrity is. Only provide the name.")
-        
-        execLLM2 = chatGPTToFurhat(name="chatGPTToFurhat")
-        listenPlayer2 = furHatListens(name="furHatListens")
-        
-        tryAskingForCelebIteration.add_child(reqLLM2)
-        tryAskingForCelebIteration.add_child(execLLM2)
-        tryAskingForCelebIteration.add_child(listenPlayer2)
-        tryAskingForCelebIteration.add_child(action4)
+        # tryAskingForCelebIteration.add_child(reqLLM2)
+        # tryAskingForCelebIteration.add_child(execLLM2)
+        # tryAskingForCelebIteration.add_child(listenPlayer2)
+        # tryAskingForCelebIteration.add_child(action4)
         
         
-        isAnswerCorrect2 = py_trees.behaviours.CheckBlackboardVariableValue(
-        name="Check for YES/NO 2",
-        check=py_trees.common.ComparisonExpression(
-            variable="furHatMediator.latestResponse", value="yes", operator=operator.eq
-        ),
-        )
+        # isAnswerCorrect2 = py_trees.behaviours.CheckBlackboardVariableValue(
+        # name="Check for YES/NO 2",
+        # check=py_trees.common.ComparisonExpression(
+        #     variable="furHatMediator.latestResponse", value="yes", operator=operator.eq
+        # ),
+        # )
         
-        tryAskingForCelebIteration.add_child(isAnswerCorrect2)
+        # tryAskingForCelebIteration.add_child(isAnswerCorrect2)
         
-        action2 = furHatSays(name="furHatSays", message="seems i found them")
-        tryAskingForCelebIteration.add_child(action2)
+        # action2 = furHatSays(name="furHatSays", message="seems i found them")
+        # tryAskingForCelebIteration.add_child(action2)
         
-        guessingIteration.add_child(tryAskingForCelebIteration)
+        # guessingIteration.add_child(tryAskingForCelebIteration)
                 
-        root.add_child(guessingIteration)
+    root.add_child(guessingIteration)
 
     return root
 
@@ -252,8 +281,22 @@ def main() -> None:
     root.setup_with_descendants()
     unset_blackboard = py_trees.blackboard.Client(name="Unsetter")
     unset_blackboard.register_key(key="foo", access=py_trees.common.Access.WRITE)
-    print("\n--------- Tick 0 ---------\n")
-    root.tick_once()
+    
+    i = 0
+    
+    while True:
+        try:
+            print(f"\n--------- Tick {i} ---------\n")
+            root.tick_once()
+            
+            i += 1
+            # if args.interactive:
+            #     py_trees.console.read_single_keypress()
+            # else:
+            #     time.sleep(0.5)
+        except KeyboardInterrupt:
+            break
+    
     print("\n")
     print(py_trees.display.unicode_tree(root, show_status=True))
     print("--------------------------\n")
@@ -261,7 +304,6 @@ def main() -> None:
     print("--------------------------\n")
     print(py_trees.display.unicode_blackboard(display_only_key_metadata=True))
     print("--------------------------\n")
-    unset_blackboard.unset("foo")
     print(py_trees.display.unicode_blackboard_activity_stream())
     
 main()
