@@ -11,9 +11,9 @@ import re
 
 load_dotenv()
 
-furhat = FurhatRemoteAPI(os.getenv('FURHAT_IP'))
+#furhat = FurhatRemoteAPI(os.getenv('FURHAT_IP'))
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-
+furhat = FurhatRemoteAPI("localhost")
 ##############################################################################
 # Classes
 ##############################################################################
@@ -53,6 +53,7 @@ class furHatSays(py_trees.behaviour.Behaviour):
         self.gameState.totalNumberOfInteraction += 1
         
         furhat.say(text=self.message)
+        time.sleep(3)
         
         print("[furHat said]: " + self.message)
         
@@ -71,6 +72,7 @@ class chatGPTToFurhat(py_trees.behaviour.Behaviour):
         self.gameState.totalNumberOfInteraction += 1
         
         furhat.say(text=self.blackboard.message)
+        time.sleep(3)
         
         print("[furHat said]: " + self.blackboard.message)
         
@@ -87,6 +89,7 @@ class furHatListens(py_trees.behaviour.Behaviour):
         self.gameState.totalNumberOfInteraction += 1
         
         furHatResponse = furhat.listen()
+        print ("Listenning...")
          
         self.furHatMediator.latestResponse = furHatResponse.message.strip().lower()
         print("[furHat heard]: " + furHatResponse.message)
