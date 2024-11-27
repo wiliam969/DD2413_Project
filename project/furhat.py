@@ -169,7 +169,7 @@ def guessing_game():
             
             print(f"Updated context: {context}")
             
-            # Try to guess after every 3 questions
+            # Try to guess after every 5 questions
             if gameState.totalNumberofQuestionsAsked % 5 == 0:
                 guess_prompt = f"{gameState.previousAnswers}\n Based on these answers and the current statistics, make your best guess of who the celebrity is. Only provide the name."
                 print("guessprompt: "  + guess_prompt)
@@ -198,7 +198,8 @@ def guessing_game():
             continue
     
     # If we reach here, we've asked too many questions
-    furhat.say(text = "I give up. Thank you for playing")
+    if gameState.totalNumberofQuestionsAsked==20:
+        furhat.say(text = "I give up. Thank you for playing")
 
 if __name__ == "__main__":
     guessing_game()
