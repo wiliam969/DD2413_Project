@@ -77,7 +77,8 @@ class chatGPTToFurhat(py_trees.behaviour.Behaviour):
 
     def update(self):
         self.gameState.totalNumberOfInteraction += 1
-        
+
+
         furhat.say(text=self.blackboard.message)
         time.sleep(3)
         
@@ -116,6 +117,7 @@ class askLLMwithGameState(py_trees.behaviour.Behaviour):
         
         self.blackboard.register_key("message", access=py_trees.common.Access.WRITE)
 
+    
     def update(self):        
         
         concatenatedMessage = f"{self.messageToLLM} The following represents all questions you asked before: {self.gameState.questionHistory}. The following represents all answers the human has given prior: {self.gameState.answerHistory}"
@@ -131,6 +133,12 @@ class askLLMwithGameState(py_trees.behaviour.Behaviour):
             assistant_id=assistant.id,
         )
 
+        def clean_text(text: str) -> str:
+            """
+            Remove all text enclosed in angle brackets (e.g., <express(...)>) and extra whitespace.
+            """
+            pattern = r"<[^>]*>"  # Matches any text within < >
+            return re.sub(pattern, "", text).strip()
 
         def wait_on_run(run, thread):
             while run.status == "queued" or run.status == "in_progress":
@@ -147,10 +155,12 @@ class askLLMwithGameState(py_trees.behaviour.Behaviour):
         
         question = response.data[0].content[0].text.value
         
-        wGameState.gameState.questionHistory.append(question)
+        clean_question =clean_text(question)
+
+        wGameState.gameState.questionHistory.append(clean_question)
         
-        self.blackboard.message = question
-        print(f"[Chat-GPT said]: {question}")
+        self.blackboard.message = clean_question
+        print(f"[Chat-GPT said]: {clean_question}")
         
         return py_trees.common.Status.SUCCESS
 
@@ -164,6 +174,13 @@ class askLLMRaw(py_trees.behaviour.Behaviour):
         
         self.blackboard.register_key("message", access=py_trees.common.Access.WRITE)
 
+    def clean_text(text: str) -> str:
+        """
+        Remove all text enclosed in angle brackets (e.g., <express(...)>) and extra whitespace.
+        """
+        pattern = r"<[^>]*>"  # Matches any text within < >
+        return re.sub(pattern, "", text).strip()
+    
     def update(self):        
                 
         message = client.beta.threads.messages.create(
@@ -195,11 +212,13 @@ class askLLMRaw(py_trees.behaviour.Behaviour):
         # Clean up the response - remove any extra spaces, newlines, or punctuation at the end
         content = content.strip('?.!').strip()
         
-        wGameState.gameState.questionHistory.append(content)
-        
-        self.blackboard.message = content
-        print(f"[Chat-GPT said]: {content}")
-        
+        cleaned_content = cleaned_content(content)
+
+        # Update the blackboard and game state
+        wGameState.gameState.questionHistory.append(cleaned_content)
+        self.blackboard.message = cleaned_content
+        print(f"[Chat-GPT said]: {cleaned_content}")
+
         return py_trees.common.Status.SUCCESS
 
 class updateAnswerHistory(py_trees.behaviour.Behaviour):
@@ -312,9 +331,9 @@ def create_root() -> py_trees.behaviour.Behaviour:
     root = py_trees.composites.Sequence(name="Complete Tree", memory=True)
     
     welcomeRoutine = py_trees.composites.Sequence(name="Warming Up", memory=True)
-        
-    action1 = furHatSays(name="furHatSays", message=f"Think <break time=\"7500ms\" /> of a celebrity and I will try to guess who it is")
-    action2 = furHatSays(name="furHatSays", message="Please answer my <break time=\"7500ms\" /> questions with yes or no")
+#<break time=\"7500ms\" />        
+    action1 = furHatSays(name="furHatSays", message=f"Think  of a celebrity and I will try to guess who it is")
+    action2 = furHatSays(name="furHatSays", message="Please answer my questions with yes or no")
     
     welcomeRoutine.add_child(action1)
     welcomeRoutine.add_child(action2)
