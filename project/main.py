@@ -177,7 +177,6 @@ class askLLMRaw(py_trees.behaviour.Behaviour):
             assistant_id=assistant.id,
         )
 
-
         def wait_on_run(run, thread):
             while run.status == "queued" or run.status == "in_progress":
                 run = client.beta.threads.runs.retrieve(
