@@ -13,13 +13,32 @@ load_dotenv()
 
 #furhat = FurhatRemoteAPI(os.getenv('FURHAT_IP'))
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-assistant = client.beta.assistants.retrieve("asst_pGFByUcST71ndbhfFWg07OdB")
+CelebAsssitant = client.beta.assistants.retrieve("asst_pGFByUcST71ndbhfFWg07OdB")
+ObjectAsssitant = client.beta.assistants.retrieve("asst_nPsAYTI77WwJG8XK7Zh4muRu")
+
 furhat = FurhatRemoteAPI("localhost")
 thread = client.beta.threads.create()
 
 ##############################################################################
 # Classes
 ##############################################################################
+
+def retrieveQuestionAndEmotion(text: str) -> str:
+    pattern = r"<express\([^)]*\)>"
+    cleanedQuestion = re.sub(pattern, "", text).strip()
+    
+    matches = re.findall(pattern, text)
+    pattern = r"<[^>]*>"  # Matches any text within < >
+    
+    if matches: 
+        question = text.replace(matches[0], "")
+        idx1 =  matches[0].index("(")
+        idx2 =  matches[0].index(")")
+        expression =  matches[0][idx1 + len("("): idx2]
+        
+        return question, expression 
+    
+    return text, ""
 
 class GameState(object):
     def __init__(self):
@@ -47,42 +66,47 @@ class furHatMediator(object):
     def __init__(self):
         self.currentMessage = ""
         self.latestResponse = ""        
+        self.sendMessageToFurhat = ""
+        self.sendGestureToFurhat = ""
 
 class furHatSays(py_trees.behaviour.Behaviour):
 
-    def __init__(self, name, message):
+    def __init__(self, name, message = ""):
         super().__init__(name=name)
-        self.gameState = rGameState.gameState
         self.message = message
 
     def update(self):
-        self.gameState.totalNumberOfInteraction += 1
+        rGameState.gameState.totalNumberOfInteraction += 1
 
-        furhat.say(text=self.message)
+        if self.message == "":
+            self.message = rfurHatMediator.furHatMediator.sendMessageToFurhat
 
-        time.sleep(3)
+        if self.message != "":
+            furhat.say(text=self.message)
+
+            print("[furHat said]: " + self.message)
         
-        print("[furHat said]: " + self.message)
+        self.message = ""
         
         return py_trees.common.Status.SUCCESS
     
-class chatGPTToFurhat(py_trees.behaviour.Behaviour):
+class furHatAsks(py_trees.behaviour.Behaviour):
 
     def __init__(self, name):
         super().__init__(name=name)
-        self.gameState = rGameState.gameState
-        self.blackboard = self.attach_blackboard_client(name="ChatGPT", namespace="ChatGPT_")
-        
-        self.blackboard.register_key("message", access=py_trees.common.Access.READ)
 
     def update(self):
-        self.gameState.totalNumberOfInteraction += 1
+        wGameState.gameState.totalNumberOfInteraction += 1
 
+        furHatResponse = furhat.ask(text=rfurHatMediator.furHatMediator.sendMessageToFurhat)
 
-        furhat.say(text=self.blackboard.message)
-        time.sleep(3)
+        print ("Listenning...")
         
-        print("[furHat said]: " + self.blackboard.message)
+        if furHatResponse.message == "":
+            return py_trees.common.Status.FAILURE 
+         
+        wfurHatMediator.furHatMediator.latestResponse = furHatResponse.message.strip().lower()
+        print("[furHat heard]: " + furHatResponse.message)
         
         return py_trees.common.Status.SUCCESS
 
@@ -90,11 +114,9 @@ class furHatListens(py_trees.behaviour.Behaviour):
 
     def __init__(self, name):
         super().__init__(name=name)
-        self.gameState = rGameState.gameState
-        self.furHatMediator = wfurHatMediator.furHatMediator
 
     def update(self):
-        self.gameState.totalNumberOfInteraction += 1
+        wGameState.gameState.totalNumberOfInteraction += 1
         
         furHatResponse = furhat.listen()
         print ("Listenning...")
@@ -102,43 +124,42 @@ class furHatListens(py_trees.behaviour.Behaviour):
         if furHatResponse.message == "":
             return py_trees.common.Status.FAILURE 
          
-        self.furHatMediator.latestResponse = furHatResponse.message.strip().lower()
+        wfurHatMediator.furHatMediator.latestResponse = furHatResponse.message.strip().lower()
         print("[furHat heard]: " + furHatResponse.message)
         
         return py_trees.common.Status.SUCCESS
 
-class askLLMwithGameState(py_trees.behaviour.Behaviour):
+class updateAndRetrieveAssistantsQuestion(py_trees.behaviour.Behaviour):
 
     def __init__(self, name, messageToLLM):
         super().__init__(name=name)
-        self.gameState = rGameState.gameState
         self.messageToLLM = messageToLLM
-        self.blackboard = self.attach_blackboard_client(name="ChatGPT", namespace="ChatGPT_")
-        
-        self.blackboard.register_key("message", access=py_trees.common.Access.WRITE)
-
     
     def update(self):        
         
-        concatenatedMessage = f"{self.messageToLLM} The following represents all questions you asked before: {self.gameState.questionHistory}. The following represents all answers the human has given prior: {self.gameState.answerHistory}"
+        concatenatedMessage = f"{self.messageToLLM} The following represents all questions you asked before: {rGameState.gameState.questionHistory}. The following represents all answers the human has given prior: {rGameState.gameState.answerHistory}"
+        
+        file = client.files.create(
+            file=open("C:\src\obj-detection\objects.json", "rb"),
+            purpose='assistants'
+        )
         
         message = client.beta.threads.messages.create(
             thread_id=thread.id,
-            role="user",
+            role="assistant",
             content=concatenatedMessage,
+            attachments = [
+                {
+                "file_id": file.id,
+                "tools": [{"type": "file_search"}]
+                }
+            ]
         )
         
         run = client.beta.threads.runs.create(
             thread_id=thread.id,
-            assistant_id=assistant.id,
+            assistant_id=CelebAsssitant.id,
         )
-
-        def clean_text(text: str) -> str:
-            """
-            Remove all text enclosed in angle brackets (e.g., <express(...)>) and extra whitespace.
-            """
-            pattern = r"<[^>]*>"  # Matches any text within < >
-            return re.sub(pattern, "", text).strip()
 
         def wait_on_run(run, thread):
             while run.status == "queued" or run.status == "in_progress":
@@ -155,32 +176,41 @@ class askLLMwithGameState(py_trees.behaviour.Behaviour):
         
         question = response.data[0].content[0].text.value
         
-        clean_question =clean_text(question)
+        cleanedQuestion, emotion =retrieveQuestionAndEmotion(question)
 
-        wGameState.gameState.questionHistory.append(clean_question)
+        wGameState.gameState.questionHistory.append(cleanedQuestion)
         
-        self.blackboard.message = clean_question
-        print(f"[Chat-GPT said]: {clean_question}")
+        wfurHatMediator.furHatMediator.sendMessageToFurhat = cleanedQuestion
+        wfurHatMediator.furHatMediator.sendGestureToFurhat = emotion
+        
+        print(f"[Chat-GPT said]: {cleanedQuestion}")
         
         return py_trees.common.Status.SUCCESS
 
-class askLLMRaw(py_trees.behaviour.Behaviour):
+class sendPlayerResponseToLLM(py_trees.behaviour.Behaviour):
+
+    def __init__(self, name):
+        super().__init__(name=name)
+
+    def update(self):        
+                
+        message = client.beta.threads.messages.create(
+            thread_id=thread.id,
+            role="user",
+            content=rfurHatMediator.furHatMediator.latestResponse,
+        )
+        
+        # Update the blackboard and game state
+        wGameState.gameState.answerHistory.append(rfurHatMediator.furHatMediator.latestResponse)
+
+        return py_trees.common.Status.SUCCESS
+
+class triggerAssistantMessage(py_trees.behaviour.Behaviour):
 
     def __init__(self, name, messageToLLM):
         super().__init__(name=name)
-        self.gameState = rGameState.gameState
         self.messageToLLM = messageToLLM
-        self.blackboard = self.attach_blackboard_client(name="ChatGPT", namespace="ChatGPT_")
         
-        self.blackboard.register_key("message", access=py_trees.common.Access.WRITE)
-
-    def clean_text(text: str) -> str:
-        """
-        Remove all text enclosed in angle brackets (e.g., <express(...)>) and extra whitespace.
-        """
-        pattern = r"<[^>]*>"  # Matches any text within < >
-        return re.sub(pattern, "", text).strip()
-    
     def update(self):        
                 
         message = client.beta.threads.messages.create(
@@ -191,7 +221,7 @@ class askLLMRaw(py_trees.behaviour.Behaviour):
         
         run = client.beta.threads.runs.create(
             thread_id=thread.id,
-            assistant_id=assistant.id,
+            assistant_id=CelebAsssitant.id,
         )
 
         def wait_on_run(run, thread):
@@ -212,22 +242,26 @@ class askLLMRaw(py_trees.behaviour.Behaviour):
         # Clean up the response - remove any extra spaces, newlines, or punctuation at the end
         content = content.strip('?.!').strip()
         
-        cleaned_content = cleaned_content(content)
+        cleaned_content, emotion = retrieveQuestionAndEmotion(content)
 
-        # Update the blackboard and game state
-        wGameState.gameState.questionHistory.append(cleaned_content)
-        self.blackboard.message = cleaned_content
+        wfurHatMediator.furhatMediator.sendMessageToFurhat = cleaned_content
+        wfurHatMediator.furHatMediator.sendGestureToFurhat = emotion
+
         print(f"[Chat-GPT said]: {cleaned_content}")
 
         return py_trees.common.Status.SUCCESS
 
-class updateAnswerHistory(py_trees.behaviour.Behaviour):
+class getCurrentObjects(py_trees.behaviour.Behaviour):
 
     def __init__(self, name):
         super().__init__(name=name)
+        
 
     def update(self):        
         
+        with open ("C:\src\obj-detection\objects.json", "r") as ObjectFiles: 
+            csvObjList = ObjectFiles.read() 
+
         latestResponse = rfurHatMediator.furHatMediator.latestResponse
 
         wGameState.gameState.answerHistory.append(latestResponse)
@@ -247,35 +281,17 @@ class updateQuestionsAsked(py_trees.behaviour.Behaviour):
 
 def guessCelebrity() -> py_trees.behaviour.Behaviour:
         
-    tryAskingForCelebIteration = py_trees.composites.Sequence(name="Guessing Iteration: {i}", memory=True)
+    tryAskingForCelebIteration = py_trees.composites.Sequence(name="Guess Celebrity: {i}", memory=True)
+            
+    reqLLM = triggerAssistantMessage(name="Send Message to LLM", messageToLLM="Based on these answers and the current statistics, make your best guess of who the celebrity is. Only provide the name.")
     
-    startAskingForCeleb = py_trees.behaviours.CheckBlackboardVariableValue(
-    name="Should we already try asking for the celeb",
-    check=py_trees.common.ComparisonExpression(
-        variable="gameState.totalNumberOfInteraction", value=8, operator=operator.ge
-    ),
-    )
-        
-    tryAskingForCelebIteration.add_child(startAskingForCeleb)
-    
-    reqLLM = askLLMRaw(name="idk man", messageToLLM="Based on these answers and the current statistics, make your best guess of who the celebrity is. Only provide the name.")
-    
-    execLLM = chatGPTToFurhat(name="chatGPTToFurhat")
+    fSays = furHatSays(name="chatGPTToFurhat")
     listenPlayer = furHatListens(name="furHatListens")
-    
-    guessedCelebrityCorrect = py_trees.behaviours.CheckBlackboardVariableValue(
-    name="Check for YES/NO",
-    check=py_trees.common.ComparisonExpression(
-        variable="furHatMediator.latestResponse", value="yes", operator=operator.contains
-    ),
-    )
-    
+        
     tryAskingForCelebIteration.add_child(reqLLM)
-    tryAskingForCelebIteration.add_child(execLLM)
+    tryAskingForCelebIteration.add_child(fSays)
     tryAskingForCelebIteration.add_child(listenPlayer)
-    
-    tryAskingForCelebIteration.add_child(guessedCelebrityCorrect)
-    
+        
     furHatWon = furHatSays(name="furHatSays", message="seems i found them")
     tryAskingForCelebIteration.add_child(furHatWon)
     
@@ -285,39 +301,29 @@ def startGuessingRound() -> py_trees.behaviour.Behaviour:
        
     guessingIteration = py_trees.composites.Sequence(name="Guessing Iteration", memory=True)
     
-    reqLLM = askLLMwithGameState(name="idk man", messageToLLM="I am trying to guess a celebrity. The following is a history of previous questions and answers/responses from the player. Based on the size of the array you know how many questions and answers were being asked already;")
-    execLLM = chatGPTToFurhat(name="chatGPTToFurhat")
-    listenPlayer = furHatListens(name="furHatListens")
+    reqLLM = updateAndRetrieveAssistantsQuestion(name="Ask LLM a Question...", messageToLLM="The following is a history of previous questions and answers/responses from the player. Based on the size of the array you know how many questions and answers were being asked already;")
+    fSays = furHatSays(name="chatGPTToFurhat")
+    fListens = furHatListens(name="furHatListens")
     
     updateQuestionCounter = updateQuestionsAsked(name="QuestionCounter")
     
     guessingIteration.add_child(reqLLM)
     guessingIteration.add_child(updateQuestionCounter)
     
-    repeat_on_failure = py_trees.decorators.Retry("repeat listening process on failure", listenPlayer, 5)
+    repeadOnFailure = py_trees.decorators.Retry("repeat listening process on failure", fListens, 10)
     
     para_listen_speech = py_trees.composites.Parallel(
-    name="Parallising of listening and speeching",
-    policy=py_trees.common.ParallelPolicy.SuccessOnAll(),
+        name="Parallising of listening and speeching",
+        policy=py_trees.common.ParallelPolicy.SuccessOnAll(),
     )
     
-    para_listen_speech.add_child(execLLM)
-    para_listen_speech.add_child(repeat_on_failure)        
+    para_listen_speech.add_child(fSays)
+    para_listen_speech.add_child(repeadOnFailure)        
     guessingIteration.add_child(para_listen_speech)
     
-    isAnswerCorrect = py_trees.behaviours.CheckBlackboardVariableValue(
-    name="Check for YES/NO",
-    check=py_trees.common.ComparisonExpression(
-        variable="furHatMediator.latestResponse", value="yes", operator=operator.contains
-    ),
-    )
+    playersAnswer = sendPlayerResponseToLLM(name="Sending the Answer of the Player to LLM")
     
-    reqLLM = updateAnswerHistory(name="updateAnswerHistory")
-    guessingIteration.add_child(isAnswerCorrect)
-    guessingIteration.add_child(reqLLM)     
-       
-    celebrity = guessCelebrity() 
-    guessingIteration.add_child(celebrity)
+    guessingIteration.add_child(playersAnswer) 
         
     return guessingIteration
         
@@ -331,8 +337,8 @@ def create_root() -> py_trees.behaviour.Behaviour:
     root = py_trees.composites.Sequence(name="Complete Tree", memory=True)
     
     welcomeRoutine = py_trees.composites.Sequence(name="Warming Up", memory=True)
-#<break time=\"7500ms\" />        
-    action1 = furHatSays(name="furHatSays", message=f"Think  of a celebrity and I will try to guess who it is")
+
+    action1 = furHatSays(name="Think of a celeb", message=f"Think  of a celebrity and I will try to guess who it is")
     action2 = furHatSays(name="furHatSays", message="Please answer my questions with yes or no")
     
     welcomeRoutine.add_child(action1)
@@ -345,18 +351,23 @@ def create_root() -> py_trees.behaviour.Behaviour:
         ]
     )
     
-    isTotalNumberofQuestionsAsked = py_trees.behaviours.CheckBlackboardVariableValue(
-    name="Check if totalNumberofQuestionsAsked is <= 20",
-    check=py_trees.common.ComparisonExpression(
-        variable="gameState.totalNumberofQuestionsAsked", value=20, operator=operator.le
-    ),
+    guessingRound = startGuessingRound()    
+    celebrity = guessCelebrity() 
+    
+    # After how many guesses should furhat guess the object
+    isTotalNumberofQuestionsAskedReached = py_trees.idioms.either_or(
+        name="If Guess <= 2 then guessing round else celebrity",
+        conditions=[
+            py_trees.common.ComparisonExpression(
+            variable="gameState.totalNumberofQuestionsAsked", value=2, operator=operator.le
+        ),
+            py_trees.common.ComparisonExpression(
+            variable="gameState.totalNumberofQuestionsAsked", value=2, operator=operator.gt
+        )],
+    subtrees=[guessingRound, celebrity]
     )
     
-    root.add_child(isTotalNumberofQuestionsAsked)
-    
-    guessingRound = startGuessingRound()
-                
-    root.add_child(guessingRound)
+    root.add_child(isTotalNumberofQuestionsAskedReached)
 
     return root
 
@@ -399,6 +410,15 @@ def main() -> None:
         try:
             print(f"\n--------- Tick {i} ---------\n")
             root.tick_once()
+            print(py_trees.display.unicode_tree(root, show_status=True))
+            
+            print("\n")
+            print("--------------------------\n")
+            print(py_trees.display.unicode_blackboard())
+            print("--------------------------\n")
+            print(py_trees.display.unicode_blackboard(display_only_key_metadata=True))
+            print("--------------------------\n")
+            print(py_trees.display.unicode_blackboard_activity_stream())
             
             i += 1
             # if args.interactive:
@@ -407,14 +427,5 @@ def main() -> None:
             #     time.sleep(0.5)
         except KeyboardInterrupt:
             break
-    
-    print("\n")
-    print(py_trees.display.unicode_tree(root, show_status=True))
-    print("--------------------------\n")
-    print(py_trees.display.unicode_blackboard())
-    print("--------------------------\n")
-    print(py_trees.display.unicode_blackboard(display_only_key_metadata=True))
-    print("--------------------------\n")
-    print(py_trees.display.unicode_blackboard_activity_stream())
     
 main()
