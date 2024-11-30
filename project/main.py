@@ -128,6 +128,20 @@ class furHatListens(py_trees.behaviour.Behaviour):
         print("[furHat heard]: " + furHatResponse.message)
         
         return py_trees.common.Status.SUCCESS
+    
+class furHatExpressEmotions(py_trees.behaviour.Behaviour):
+
+    def __init__(self, name):
+        super().__init__(name=name)
+
+    def update(self):
+        wGameState.gameState.totalNumberOfInteraction += 1
+         
+        furhat.gesture(name=rfurHatMediator.furHatMediator.sendGestureToFurhat)
+        #furhat.gesture(name="ExpressAnger", async_req=False)
+        
+        
+        return py_trees.common.Status.SUCCESS
 
 class updateAndRetrieveAssistantsQuestion(py_trees.behaviour.Behaviour):
 
@@ -176,7 +190,7 @@ class updateAndRetrieveAssistantsQuestion(py_trees.behaviour.Behaviour):
         
         question = response.data[0].content[0].text.value
         
-        cleanedQuestion, emotion =retrieveQuestionAndEmotion(question)
+        cleanedQuestion, emotion = retrieveQuestionAndEmotion(question)
 
         wGameState.gameState.questionHistory.append(cleanedQuestion)
         
@@ -322,8 +336,10 @@ def startGuessingRound() -> py_trees.behaviour.Behaviour:
     guessingIteration.add_child(para_listen_speech)
     
     playersAnswer = sendPlayerResponseToLLM(name="Sending the Answer of the Player to LLM")
+    fExpression = furHatExpressEmotions(name="furhat ExpressEmotion")
     
     guessingIteration.add_child(playersAnswer) 
+    guessingIteration.add_child(fExpression)
         
     return guessingIteration
         
