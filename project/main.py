@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import re
 from threading import Thread
-from object_detection import objDetection
+#from object_detection import objDetection
 
 load_dotenv()
 
@@ -73,6 +73,7 @@ class GameState(object):
     def __init__(self):
         self.gameName = ""
         self.isGameWon = False
+        self.gameIntroFinished = False
         self.totalNumberofQuestionsAsked = 0
         self.totalNumberofCorrectGuesses = 0        
         self.totalNumberofWrongGuesses = 0        
@@ -199,8 +200,9 @@ class furHatExpressEmotions(py_trees.behaviour.Behaviour):
         
         if self.emotion == "":
             self.emotion = rfurHatMediator.furHatMediator.sendGestureToFurhat
-        furhat.gesture(name=self.emotion)
-        #furhat.gesture(name="ExpressAnger", async_req=False)
+            
+        if self.emotion == "":
+            furhat.gesture(name=self.emotion)
         
         self.emotion = ""
         
@@ -224,7 +226,7 @@ class updateAndRetrieveAssistantsQuestion(py_trees.behaviour.Behaviour):
             )
         else: 
             file = client.files.create(
-                file=open("C:\src\obj-detection\objects.json", "rb"),
+                file=open("objects.json", "rb"),
                 purpose='assistants'
             )
             
@@ -345,7 +347,7 @@ class getCurrentObjects(py_trees.behaviour.Behaviour):
 
     def update(self):        
         
-        with open ("C:\src\obj-detection\objects.json", "r") as ObjectFiles: 
+        with open ("objects.json", "r") as ObjectFiles: 
             csvObjList = ObjectFiles.read() 
 
         latestResponse = rfurHatMediator.furHatMediator.latestResponse
@@ -365,6 +367,13 @@ class updateQuestionsAsked(py_trees.behaviour.Behaviour):
         
         return py_trees.common.Status.SUCCESS
 
+class finishGameIntro(py_trees.behaviour.Behaviour):
+    def __init__(self, name):
+        super().__init__(name=name)
+
+    def update(self):        
+        wGameState.gameState.gameIntroFinished = True
+
 def makeLastGuess() -> py_trees.behaviour.Behaviour:
         
     tryAskingForCelebIteration = py_trees.composites.Sequence(name="Guess Celebrity: {i}", memory=True)
@@ -377,7 +386,7 @@ def makeLastGuess() -> py_trees.behaviour.Behaviour:
     gameWonSequence.add_child(closeGame(name="Close the Game"))
     
     gameLostSequence = py_trees.composites.Sequence(name="gameLostSequence", memory=False)
-    gameLostMessage = furHatSays(name="furHatSays", message="Seems that i didnt have a Chance")
+    gameLostMessage = furHatSays(name="furHatSays", message="Seems that i didnt have a Chance. I lost")
     gameLostSequence.add_child(gameLostMessage)
     gameLostSequence.add_child(closeGame(name="Close the Game"))
     
@@ -438,27 +447,48 @@ def startGuessingRound() -> py_trees.behaviour.Behaviour:
         
 def startCelebrityGuessingGame() -> py_trees.behaviour.Behaviour:
     
-    celebRootTree = py_trees.composites.Sequence(name="Celebrity - Root - Tree", memory=False)
+    celebRootTree = py_trees.composites.Sequence(name="Celebrity - Root - Tree", memory=True)
+    
+    gameIntro = py_trees.composites.Sequence(name="How do we play the game?", memory=False)
+
+    sdsdfdsfsfd = furHatSays(name="think about a celebrity", message="Think  of a celebrity and I will try to guess who it is.  ")
+    welcomeMessasdfdsfge1 = furHatSays(name="Please answer the Questions", message="We are playing 7 rounds, if i cant guess it until the last round i will loose the game")
+    
+    gameIntro.add_child(sdsdfdsfsfd)
+    gameIntro.add_child(welcomeMessasdfdsfge1)
+    gameIntro.add_child(finishGameIntro(name="finishGameIntro"))
     
     guessingRound = startGuessingRound()    
     celebrity = makeLastGuess() 
-    
-    # After how many guesses should furhat guess the object
+    # Should we start the Intro or directly go into the game    
     isTotalNumberofQuestionsAskedReached = py_trees.idioms.either_or(
-        name="If Guess <= 2 then guessing round else celebrity",
+        name="If Guess <= 07 then guessing round else celebrity",
         conditions=[
             py_trees.common.ComparisonExpression(
-            variable="gameState.totalNumberofQuestionsAsked", value=1, operator=operator.le
+            variable="gameState.totalNumberofQuestionsAsked", value=7, operator=operator.le
         ),
             py_trees.common.ComparisonExpression(
-            variable="gameState.totalNumberofQuestionsAsked", value=1, operator=operator.gt
+            variable="gameState.totalNumberofQuestionsAsked", value=7, operator=operator.gt
         )],
     subtrees=[guessingRound, celebrity]
     )
     
+    # After how many guesses should furhat guess the object
+    gameIntroFinished = py_trees.idioms.either_or(
+        name="Check whether we already Won the Game",
+        conditions=[
+            py_trees.common.ComparisonExpression(
+            variable="gameState.gameIntroFinished", value=False, operator=operator.eq
+        ),
+            py_trees.common.ComparisonExpression(
+            variable="gameState.gameIntroFinished", value=True, operator=operator.eq
+        )],
+    subtrees=[gameIntro, isTotalNumberofQuestionsAskedReached]
+    )    
+
     celebRootTree.add_children(
         [
-            isTotalNumberofQuestionsAskedReached
+            gameIntroFinished
         ]
     )
     
@@ -468,36 +498,46 @@ def startObjectDetectionGame() -> py_trees.behaviour.Behaviour:
     
     ObjectRootTree = py_trees.composites.Sequence(name="Object - Root - Tree", memory=True)
     
-    DirfferentRoutine = py_trees.composites.Sequence(name="How do we play the game?", memory=True)
+    gameIntro = py_trees.composites.Sequence(name="How do we play the game?", memory=False)
 
-    sdsdfdsfsfd = furHatSays(name="we are all the same haha 1", message="Think  of a celebrity and I will try to guess who it is")
-    welcomeMessasdfdsfge1 = furHatSays(name="we are all the same haha 12", message="Please answer my questions with yes or no")
+    gameIntro1 = furHatSays(name="think about a celebrity", message="Think of an object infront of you and i will try to guess which it is.  ")
+    gameIntro2 = furHatSays(name="Please answer the Questions", message="We are playing 4 rounds, if i cant guess it until the last round i will loose the game")
     
-    DirfferentRoutine.add_child(sdsdfdsfsfd)
-    DirfferentRoutine.add_child(welcomeMessasdfdsfge1)
-        
-    celeb_welcome = py_trees.idioms.oneshot(DirfferentRoutine, "Tutorial")
+    gameIntro.add_child(gameIntro1)
+    gameIntro.add_child(gameIntro2)
+    gameIntro.add_child(finishGameIntro(name="finishGameIntro"))
     
     guessingRound = startGuessingRound()    
     celebrity = makeLastGuess() 
-    
-    # After how many guesses should furhat guess the object
+    # Should we start the Intro or directly go into the game    
     isTotalNumberofQuestionsAskedReached = py_trees.idioms.either_or(
-        name="If Guess <= 10 then guessing round else object",
+        name="If Guess <= 04 then guessing round else celebrity",
         conditions=[
             py_trees.common.ComparisonExpression(
-            variable="gameState.totalNumberofQuestionsAsked", value=5, operator=operator.le
+            variable="gameState.totalNumberofQuestionsAsked", value=4, operator=operator.le
         ),
             py_trees.common.ComparisonExpression(
-            variable="gameState.totalNumberofQuestionsAsked", value=5, operator=operator.gt
+            variable="gameState.totalNumberofQuestionsAsked", value=4, operator=operator.gt
         )],
     subtrees=[guessingRound, celebrity]
     )
     
+    # After how many guesses should furhat guess the object
+    gameIntroFinished = py_trees.idioms.either_or(
+        name="Check whether we already Won the Game",
+        conditions=[
+            py_trees.common.ComparisonExpression(
+            variable="gameState.gameIntroFinished", value=False, operator=operator.eq
+        ),
+            py_trees.common.ComparisonExpression(
+            variable="gameState.gameIntroFinished", value=True, operator=operator.eq
+        )],
+    subtrees=[gameIntro, isTotalNumberofQuestionsAskedReached]
+    )    
+
     ObjectRootTree.add_children(
         [
-            celeb_welcome,
-            isTotalNumberofQuestionsAskedReached
+            gameIntroFinished
         ]
     )
     
@@ -550,8 +590,6 @@ def create_root() -> py_trees.behaviour.Behaviour:
     )
     
     root.add_child(whichGameToChoose)
-    # root.add_child(isgameWon)
-    # root.add_child(gameWonMessage)
     
     return root
 
