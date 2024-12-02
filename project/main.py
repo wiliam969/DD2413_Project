@@ -113,7 +113,7 @@ class furHatSays(py_trees.behaviour.Behaviour):
             self.message = rfurHatMediator.furHatMediator.sendMessageToFurhat
 
         if self.message != "":
-            furhat.say(text=self.message)
+            furhat.say(text=self.message, blocking=True)
 
             print("[furHat said]: " + self.message)
         
@@ -433,15 +433,7 @@ def startGuessingRound() -> py_trees.behaviour.Behaviour:
     fSays = furHatSays(name="chatGPTToFurhat")
     fListens = furHatListens(name="furHatListens")
     
-    repeadOnFailure = py_trees.decorators.Retry("repeat listening process on failure", fListens, 10)
-    
-    para_listen_speech = py_trees.composites.Parallel(
-        name="Parallising of listening and speeching",
-        policy=py_trees.common.ParallelPolicy.SuccessOnAll(),
-    )
-    
-    para_listen_speech.add_child(fSays)
-    para_listen_speech.add_child(repeadOnFailure)     
+    repeadOnFailure = py_trees.decorators.Retry("repeat listening process on failure", fListens, 10)  
     
     playersAnswer = sendPlayerResponseToLLM(name="Sending the Answer of the Player to LLM")
     fExpression = furHatExpressEmotions(name="furhat ExpressEmotion")
@@ -451,7 +443,8 @@ def startGuessingRound() -> py_trees.behaviour.Behaviour:
             fThinking,
             reqLLM,
             updateQuestionCounter,
-            para_listen_speech,
+            fSays,
+            repeadOnFailure,
             playersAnswer,
             fExpression
         ]
