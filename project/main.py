@@ -20,7 +20,7 @@ ObjectAsssitant = client.beta.assistants.retrieve("asst_nPsAYTI77WwJG8XK7Zh4muRu
 
 currentAssistant = None
 
-furhat = FurhatRemoteAPI("localhost")
+furhat = FurhatRemoteAPI("192.168.1.115")
 thread = client.beta.threads.create()
 
 running = True
@@ -160,6 +160,17 @@ class furHatListens(py_trees.behaviour.Behaviour):
         
         return py_trees.common.Status.SUCCESS
 
+# class updateAttendance(py_trees.behaviour.Behaviour):
+#     def __init__(self, name):
+#         super().__init__(name=name)
+
+#     def update(self):
+#         users = furhat.get_users()
+        
+#         if users: 
+#             furhat.attend(userid=users[0].id)
+
+
 class setupGame(py_trees.behaviour.Behaviour):
 
     def __init__(self, name):
@@ -167,12 +178,14 @@ class setupGame(py_trees.behaviour.Behaviour):
 
     def update(self):
         global currentAssistant
-        if "celebrity" in rfurHatMediator.furHatMediator.latestResponse:
-            wGameState.gameState.gameName = rfurHatMediator.furHatMediator.latestResponse
+        # rfurHatMediator.furHatMediator.latestResponse."object" 
+        
+        if "celebrity" in rfurHatMediator.furHatMediator.latestResponse.lower():
+            wGameState.gameState.gameName = "celebrity"
             currentAssistant = CelebAsssitant
             return py_trees.common.Status.SUCCESS
-        elif "object" in rfurHatMediator.furHatMediator.latestResponse:
-            wGameState.gameState.gameName = rfurHatMediator.furHatMediator.latestResponse
+        elif "object" in rfurHatMediator.furHatMediator.latestResponse.lower():
+            wGameState.gameState.gameName = "object"
             currentAssistant = ObjectAsssitant
             return py_trees.common.Status.SUCCESS
         
@@ -201,7 +214,7 @@ class furHatExpressEmotions(py_trees.behaviour.Behaviour):
         if self.emotion == "":
             self.emotion = rfurHatMediator.furHatMediator.sendGestureToFurhat
             
-        if self.emotion == "":
+        if self.emotion != "":
             furhat.gesture(name=self.emotion)
         
         self.emotion = ""
@@ -373,6 +386,7 @@ class finishGameIntro(py_trees.behaviour.Behaviour):
 
     def update(self):        
         wGameState.gameState.gameIntroFinished = True
+        return py_trees.common.Status.SUCCESS
 
 def makeLastGuess() -> py_trees.behaviour.Behaviour:
         
@@ -465,17 +479,17 @@ def startCelebrityGuessingGame() -> py_trees.behaviour.Behaviour:
         name="If Guess <= 07 then guessing round else celebrity",
         conditions=[
             py_trees.common.ComparisonExpression(
-            variable="gameState.totalNumberofQuestionsAsked", value=7, operator=operator.le
+            variable="gameState.totalNumberofQuestionsAsked", value=10, operator=operator.le
         ),
             py_trees.common.ComparisonExpression(
-            variable="gameState.totalNumberofQuestionsAsked", value=7, operator=operator.gt
+            variable="gameState.totalNumberofQuestionsAsked", value=10, operator=operator.gt
         )],
     subtrees=[guessingRound, celebrity]
     )
     
     # After how many guesses should furhat guess the object
     gameIntroFinished = py_trees.idioms.either_or(
-        name="Check whether we already Won the Game",
+        name="Should we start the Game ",
         conditions=[
             py_trees.common.ComparisonExpression(
             variable="gameState.gameIntroFinished", value=False, operator=operator.eq
@@ -581,10 +595,10 @@ def create_root() -> py_trees.behaviour.Behaviour:
         name="Which Game are we going to play?",
         conditions=[
             py_trees.common.ComparisonExpression(
-            variable="gameState.gameName", value="celebrity", operator=operator.contains
+            variable="gameState.gameName", value="celebrity", operator=operator.eq
         ),
             py_trees.common.ComparisonExpression(
-            variable="gameState.gameName", value="object", operator=operator.contains
+            variable="gameState.gameName", value="object", operator=operator.eq
         )],
         subtrees=[celebrityGame, objectGame]
     )
@@ -626,8 +640,6 @@ def main() -> None:
     # Execute
     ####################
     root.setup_with_descendants()
-    unset_blackboard = py_trees.blackboard.Client(name="Unsetter")
-    unset_blackboard.register_key(key="foo", access=py_trees.common.Access.WRITE)
     
     i = 0
     
@@ -645,11 +657,11 @@ def main() -> None:
             print("--------------------------\n")
             print(py_trees.display.unicode_blackboard_activity_stream())
             
+            # time.sleep(10)
+            print(f"\n--------- END-TICK {i} ---------\n")
             i += 1
             # if args.interactive:
             #     py_trees.console.read_single_keypress()
-            # else:
-            #     time.sleep(0.5)
         except KeyboardInterrupt:
             break
     
