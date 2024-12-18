@@ -516,10 +516,10 @@ def startCelebrityGuessingGame() -> py_trees.behaviour.Behaviour:
         name="If Guess <= 07 then guessing round else celebrity",
         conditions=[
             py_trees.common.ComparisonExpression(
-            variable="gameState.totalNumberofQuestionsAsked", value=4, operator=operator.le
+            variable="gameState.totalNumberofQuestionsAsked", value=10, operator=operator.le
         ),
             py_trees.common.ComparisonExpression(
-            variable="gameState.totalNumberofQuestionsAsked", value=4, operator=operator.gt
+            variable="gameState.totalNumberofQuestionsAsked", value=10, operator=operator.gt
         )],
     subtrees=[guessingRound, celebrity]
     )
@@ -610,7 +610,7 @@ def create_root() -> py_trees.behaviour.Behaviour:
     welcomeRoutine = py_trees.composites.Sequence(name="Thats not Warming up but rather stuff like presenting or something ", memory=True)
 
     welcomeMessage1 = furHatSays(name="present yourself boy", message="Hello My Name is Furhat I am a Robot.")
-    welcomeMessage2 = furHatSays(name="furHatSays", message="Lets play a Guessing Game where I will try to guess a celebrity you are thinking about.")
+    welcomeMessage2 = furHatSays(name="furHatSays", message="Lets play a Guessing Game where I will try to guess a celebrity you are thinking about. Please say Celebrity to start the game.")
     
     welcomeRoutine.add_child(welcomeMessage1)
     welcomeRoutine.add_child(welcomeMessage2)
