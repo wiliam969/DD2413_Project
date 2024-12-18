@@ -15,12 +15,14 @@ load_dotenv()
 
 #furhat = FurhatRemoteAPI(os.getenv('FURHAT_IP'))
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-CelebAsssitant = client.beta.assistants.retrieve("asst_pGFByUcST71ndbhfFWg07OdB")
+#CelebAsssitant = client.beta.assistants.retrieve("asst_pGFByUcST71ndbhfFWg07OdB") # WITH SSML 
+CelebAsssitant = client.beta.assistants.retrieve("asst_vDh0qD69O3lJT5MAek39fhZY") # BAREBONE
+
 ObjectAsssitant = client.beta.assistants.retrieve("asst_nPsAYTI77WwJG8XK7Zh4muRu")
 
 currentAssistant = None
 
-furhat = FurhatRemoteAPI("192.168.1.115")
+furhat = FurhatRemoteAPI("localhost")
 thread = client.beta.threads.create()
 
 running = True
@@ -99,6 +101,19 @@ class furHatMediator(object):
         self.latestResponse = ""        
         self.sendMessageToFurhat = ""
         self.sendGestureToFurhat = ""
+
+class updAttendance(py_trees.behaviour.Behaviour): 
+    def __init__(self, name, message = ""):
+        super().__init__(name=name)
+        self.message = message
+
+    def update(self):
+        users = furhat.get_users()
+        
+        if users:
+            furhat.attend(userid=users[0].id)
+                
+        return py_trees.common.Status.SUCCESS
 
 class furHatSays(py_trees.behaviour.Behaviour):
 
@@ -201,6 +216,25 @@ class closeGame(py_trees.behaviour.Behaviour):
         global running
         running = False
         return py_trees.common.Status.SUCCESS
+
+
+class isGameWonNode(py_trees.behaviour.Behaviour):
+
+    def __init__(self, name):
+        super().__init__(name=name)
+
+    def update(self):
+        global currentAssistant
+        # rfurHatMediator.furHatMediator.latestResponse."object" 
+        
+        if "yes" in rfurHatMediator.furHatMediator.latestResponse.lower():
+            wGameState.gameState.isGameWon = True
+            return py_trees.common.Status.SUCCESS
+        elif "no" in rfurHatMediator.furHatMediator.latestResponse.lower():
+            wGameState.gameState.isGameWon = False
+            return py_trees.common.Status.SUCCESS
+        
+        return py_trees.common.Status.FAILURE
     
 class furHatExpressEmotions(py_trees.behaviour.Behaviour):
 
@@ -394,6 +428,12 @@ def makeLastGuess() -> py_trees.behaviour.Behaviour:
             
     reqLLM = triggerAssistantMessage(name="Trying to Guess...", messageToLLM="Based on these answers and the current statistics, make your best guess of who the celebrity is. Only provide the name.")
     
+    wonORLost = furHatSays(name="won or lost")
+    getLastResponse = furHatListens(name="last response :(")
+    triggerGameWon = isGameWonNode(name="fu")
+    
+
+    
     gameWonSequence = py_trees.composites.Sequence(name="gameWonSequence", memory=False)
     gameWonMessage = furHatSays(name="present yourself boy", message="Yeah I won :D")
     gameWonSequence.add_child(gameWonMessage)
@@ -418,6 +458,10 @@ def makeLastGuess() -> py_trees.behaviour.Behaviour:
     )
     
     tryAskingForCelebIteration.add_child(reqLLM)
+    tryAskingForCelebIteration.add_child(wonORLost)
+    tryAskingForCelebIteration.add_child(getLastResponse)
+    tryAskingForCelebIteration.add_child(triggerGameWon)
+    
     tryAskingForCelebIteration.add_child(isGameWon)
         
     return tryAskingForCelebIteration
@@ -458,8 +502,8 @@ def startCelebrityGuessingGame() -> py_trees.behaviour.Behaviour:
     
     gameIntro = py_trees.composites.Sequence(name="How do we play the game?", memory=False)
 
-    sdsdfdsfsfd = furHatSays(name="think about a celebrity", message="Think  of a celebrity and I will try to guess who it is.  ")
-    welcomeMessasdfdsfge1 = furHatSays(name="Please answer the Questions", message="We are playing 7 rounds, if i cant guess it until the last round i will loose the game")
+    sdsdfdsfsfd = furHatSays(name="think about a celebrity", message="Now, please think of a celebrity and I will try to guess who it is.")
+    welcomeMessasdfdsfge1 = furHatSays(name="Please answer the Questions", message="We are playing 10 rounds, if i cant guess it until the last round i will loose the game")
     
     gameIntro.add_child(sdsdfdsfsfd)
     gameIntro.add_child(welcomeMessasdfdsfge1)
@@ -472,10 +516,10 @@ def startCelebrityGuessingGame() -> py_trees.behaviour.Behaviour:
         name="If Guess <= 07 then guessing round else celebrity",
         conditions=[
             py_trees.common.ComparisonExpression(
-            variable="gameState.totalNumberofQuestionsAsked", value=10, operator=operator.le
+            variable="gameState.totalNumberofQuestionsAsked", value=4, operator=operator.le
         ),
             py_trees.common.ComparisonExpression(
-            variable="gameState.totalNumberofQuestionsAsked", value=10, operator=operator.gt
+            variable="gameState.totalNumberofQuestionsAsked", value=4, operator=operator.gt
         )],
     subtrees=[guessingRound, celebrity]
     )
@@ -521,10 +565,10 @@ def startObjectDetectionGame() -> py_trees.behaviour.Behaviour:
         name="If Guess <= 04 then guessing round else celebrity",
         conditions=[
             py_trees.common.ComparisonExpression(
-            variable="gameState.totalNumberofQuestionsAsked", value=4, operator=operator.le
+            variable="gameState.totalNumberofQuestionsAsked", value=5, operator=operator.le
         ),
             py_trees.common.ComparisonExpression(
-            variable="gameState.totalNumberofQuestionsAsked", value=4, operator=operator.gt
+            variable="gameState.totalNumberofQuestionsAsked", value=5, operator=operator.gt
         )],
     subtrees=[guessingRound, celebrity]
     )
@@ -559,10 +603,14 @@ def create_root() -> py_trees.behaviour.Behaviour:
     """
     root = py_trees.composites.Sequence(name="Complete Tree", memory=True)
     
+    attendance = updAttendance(name="update attendance")
+    
+    root.add_child(attendance)
+    
     welcomeRoutine = py_trees.composites.Sequence(name="Thats not Warming up but rather stuff like presenting or something ", memory=True)
 
-    welcomeMessage1 = furHatSays(name="present yourself boy", message="Hello My Name is Furhat I am a Robot. ")
-    welcomeMessage2 = furHatSays(name="furHatSays", message="Would you like to play a Game? If you want to play Guess the Celebrity please say: Celebrity. Otherwise the Object Detection Game will start shortly..")
+    welcomeMessage1 = furHatSays(name="present yourself boy", message="Hello My Name is Furhat I am a Robot.")
+    welcomeMessage2 = furHatSays(name="furHatSays", message="Lets play a Guessing Game where I will try to guess a celebrity you are thinking about.")
     
     welcomeRoutine.add_child(welcomeMessage1)
     welcomeRoutine.add_child(welcomeMessage2)
@@ -581,6 +629,8 @@ def create_root() -> py_trees.behaviour.Behaviour:
     root.add_child(oneShotWelcomeRoutine)
     
     celebrityGame = startCelebrityGuessingGame()
+    #root.add_child(celebrityGame)
+    
     objectGame = startObjectDetectionGame() 
     
     # After how many guesses should furhat guess the object
