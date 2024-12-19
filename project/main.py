@@ -426,7 +426,7 @@ def makeLastGuess() -> py_trees.behaviour.Behaviour:
         
     tryAskingForCelebIteration = py_trees.composites.Sequence(name="Guess Celebrity: {i}", memory=True)
             
-    reqLLM = triggerAssistantMessage(name="Trying to Guess...", messageToLLM="Based on these answers and the current statistics, make your best guess of who the celebrity is. Only provide the name.")
+    reqLLM = triggerAssistantMessage(name="Trying to Guess...", messageToLLM="Based on these answers and the current statistics, make your best guess of who the celebrity is. Say could the celbrity you are thinking of be..")
     
     wonORLost = furHatSays(name="won or lost")
     getLastResponse = furHatListens(name="last response :(")
@@ -435,12 +435,12 @@ def makeLastGuess() -> py_trees.behaviour.Behaviour:
 
     
     gameWonSequence = py_trees.composites.Sequence(name="gameWonSequence", memory=False)
-    gameWonMessage = furHatSays(name="present yourself boy", message="Yeah I won :D")
+    gameWonMessage = furHatSays(name="present yourself boy", message="Yes I won! Thank you for playing")
     gameWonSequence.add_child(gameWonMessage)
     gameWonSequence.add_child(closeGame(name="Close the Game"))
     
     gameLostSequence = py_trees.composites.Sequence(name="gameLostSequence", memory=False)
-    gameLostMessage = furHatSays(name="furHatSays", message="Seems that i didnt have a Chance. I lost")
+    gameLostMessage = furHatSays(name="furHatSays", message="Seems that i didnt have a chance ufortunately, thank you for playing")
     gameLostSequence.add_child(gameLostMessage)
     gameLostSequence.add_child(closeGame(name="Close the Game"))
     
